@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -254,6 +253,9 @@ class TimeField(SfField, models.TimeField):
 
     def from_db_value(self, value: Any, expression: Any, connection: DatabaseWrapper) -> Any:
         # pylint:disable=unused-argument
+        if isinstance(value, str):
+            # value from salesforce is a string "HH:MM:ss.000Z", value from other db is datetime.time().
+            value = value.rstrip('Z')
         return self.to_python(value)
 
 

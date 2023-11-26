@@ -1,7 +1,7 @@
 """
 Module for models for a combined storage with a Salesforce and normal database.
 
-usage e.g.:
+usage purposes e.g.:
   - Backup salesforce objects including its primary keys.
   - Use the backup in queries, including ForeignKeys related correctly to the same database.
   - Update the object in Salesfoce to the original values from backup object
@@ -32,12 +32,16 @@ from salesforce.router import is_sf_database
 if not TYPE_CHECKING:
     from salesforce.backend import manager
 
+__all__ = ('SalesforceModel',)
+
 
 class SfCharAutoField(SalesforceAutoField):
     """Auto field that allows Salesforce ID or UUID in an alternate database"""
 
     # db_returning = False  # this was a simple fix for Django >= 3.0,
     #                       # but a fix by "_do_insert()" is better.
+
+    validators = ()  # type: ignore[assignment] # easier than an immutable list
 
     def get_internal_type(self) -> str:
         return 'CharField'
@@ -80,7 +84,8 @@ else:
             abstract = True
             base_manager_name = 'objects'
 
-        id = SfCharAutoField(primary_key=True, name=SF_PK, db_column='Id', verbose_name='ID', auto_created=True)
+        id = SfCharAutoField(primary_key=True, name=SF_PK, db_column='Id', verbose_name='ID', auto_created=True,
+                             editable=False)
 
         def save(self, force_insert=False, force_update=False, using=None, update_fields=None):
             using = using or router.db_for_write(self.__class__, instance=self)

@@ -80,7 +80,21 @@ def run():
         # in API 51.0 Spring '21
         'EmployeeUserSettings',
         # in API 52.0 Summer '21
-        'EinsteinAgentSettings'
+        'EinsteinAgentSettings',
+        # in API 54.0 Spring '22
+        'EinsteinDealInsightsSettings',
+        # in API 55.0 Summer '22
+        'IndustriesAutomotiveSettings', 'RelatedListColumnDefinition', 'RelatedListDefinition',
+        'SubscriptionManagementSettings', 'WarrantyLifecycleMgmtSettings',
+        # in API 56.0 Winter '23
+        'MfgServiceConsoleSettings',
+        # in API 57.0 Spring '23
+        'PaymentsSettings', 'Territory2SupportedObject',
+        # in API 58.0 Summer '23
+        'ConnectedApplication',  # timeout
+        'LicensingSettings',  # EXTERNAL_OBJECT_EXCEPTION
+        # in API 59.0 Winter '24
+        'CommsServiceConsoleSettings',
     }
     problematic_write = {
         # any SalesforceError
@@ -115,6 +129,12 @@ def run():
         'Layout', 'QuickActionDefinition', 'RemoteProxy', 'ValidationRule',
         'WorkflowFieldUpdate', 'WorkflowRule',
         'QuickActionListItem',
+        # in API 56.0 Winter '23
+        'CustomerDataPlatformSettings', 'OauthOidcSettings',
+        # in API 58.0 Summer '23
+        'ExternalClientAppSettings',  # JSON_PARSER_ERROR
+        'FieldMappingField',  # INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST
+        'StaticResource',  # FIELD_INTEGRITY_EXCEPTION
     }
 
     #  FIELD_INTEGRITY_EXCEPTION

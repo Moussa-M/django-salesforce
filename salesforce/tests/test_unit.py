@@ -11,7 +11,7 @@ from salesforce import fields, models
 from salesforce.dbapi import driver
 from salesforce.testrunner.example.models import (
         Contact, Opportunity, OpportunityContactRole, ChargentOrder)
-from salesforce.backend.test_helpers import LazyTestMixin
+from salesforce.backend.test_helpers import default_is_sf, LazyTestMixin, skipUnless
 from salesforce.backend.utils import sobj_id
 
 
@@ -120,6 +120,7 @@ class TestQueryCompiler(TestCase, LazyTestMixin):
                          r'\(SELECT Opportunity\.Id FROM Opportunity WHERE Opportunity\.StageName = %s ?\)')
         self.assertRegex(sql, 'OpportunityContactRole.Role = %s')
 
+    @skipUnless(default_is_sf, "depends on Salesforce database.")
     def test_subquery_filter_on_child(self):
         """Filter with a Subquery() on a child object.
 
@@ -151,6 +152,7 @@ class TestTopologyCompiler(TestCase):
         ret = compiler.query_topology(alias_map_items)
         self.assertEqual(ret, expected)
 
+    @skipUnless(default_is_sf, "depends on Salesforce database.")
     def test_topology_compiler(self):
         # Contact.objects.all()
         # SELECT Contact.Id FROM Contact
@@ -187,6 +189,9 @@ class TestTopologyCompiler(TestCase):
 
 
 class SfParamsTest(TestCase):
+    # type checking of this test case is currently not possible
+    databases = '__all__'
+
     def test_params_handover_and_isolation(self):
         """Test that sp_params are propagated to the rest of the queryset chain
         but isolated from the previous part.
@@ -194,9 +199,29 @@ class SfParamsTest(TestCase):
         qs_1 = Contact.objects.all()
         qs_2 = qs_1.sf(query_all=True)
         qs_3 = qs_2.filter(first_name__gt='A')
-        # a valua is propagated to the next level, but not to the previous
+        # a value is propagated to the next level, but not to the previous
         self.assertTrue(qs_3.query.sf_params.query_all)
         self.assertFalse(qs_1.query.sf_params.query_all)
+
+    def test_minimal_aliases(self):
+        """Test SOQL with minimal aliases without a table name of the main table"""
+        # test that 'minimal_aliases' attribute is passed from qs to a salesforce compiler
+        qs = Contact.objects.all()
+        self.assertEqual(qs.query.get_compiler('salesforce').sf_params.minimal_aliases, False)
+        self.assertEqual(qs.sf(minimal_aliases=True).query.get_compiler('salesforce').sf_params.minimal_aliases, True)
+
+        # test that a normal SOQL is with table aliases
+        qs = Contact.objects.filter(first_name='Peter').values('last_name')
+        self.assertEqual(str(qs.query), "SELECT Contact.LastName FROM Contact WHERE Contact.FirstName = 'Peter'")
+
+        # test that superfluous talbe aliases can be removed by 'minimal_aliases'
+        expected_sql = "SELECT LastName FROM Contact WHERE FirstName = 'Peter'"
+        qs = Contact.objects.sf(minimal_aliases=True).filter(first_name='Peter').values('last_name')
+        self.assertEqual(str(qs.query), expected_sql)
+        qs = Contact.objects.filter(first_name='Peter').sf(minimal_aliases=True).values('last_name')
+        self.assertEqual(str(qs.query), expected_sql)
+        qs = Contact.objects.filter(first_name='Peter').values('last_name').sf(minimal_aliases=True)
+        self.assertEqual(str(qs.query), expected_sql)
 
 
 class RegisterConversionTest(TestCase):

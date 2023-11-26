@@ -14,8 +14,51 @@ Some items here can be marked as "internal": not ready enough or
 experimental.
 
 
-[3.2.1] Unpublished
+[4.2] 2023-07-04
 -------------------
+* Add: Basic diagnostics after installation can be done by command
+  ``python manage.py check --database=salesforce``
+* Change: Use with Django 4.2 requires an enterprise license key.
+* Add: Support for Django 4.2
+* Use API 58.0 Summer '23
+* Add: Support for Django Database caching #315
+* Fix: Configurable max introspected pick-list size
+  SF_MAX_INSPECTDB_PICKLIST_LENGTH #312
+  Some people need to introspect huge picklists, some don't want.
+
+
+[4.1] 2022-08-05
+----------------
+* Add: Support for Django 4.1
+* Add: Command ``inspectdb`` can introspect actual default values
+  of fields from a ``defaultValueFormula`` if it is a simple constant
+  like a number or a string.
+* Fix: A default value ``DefaultedOnCreate(value)`` is no longer created
+  by ``inspectdb`` in favour of a simple ``value``. If a simple default value
+  can not be known then a generic ``DEFAULTED_ON_CREATE`` is still used rarely
+  for default values created by a complicated or unknown function only
+  on Salesforce side. #280
+* Fix: Optionally don't use redundant table names before field names
+  if queried with ``.sf(minimal_aliases=True)``; important for some
+  special system objects #302
+* Fix: Tests with the newest Django, Salesforce, Python; including Python 3.11(beta)
+* Fix: Extended SalesforceModel with PostgreSQL backend and Django >= 3.0 #299
+
+
+[4.0] 2021-11-22
+----------------
+* Internal change: The default row type from salesforce Cursor is now a tuple,
+  not a list
+* Fix: Invalid primary key from bulk_create([one_object]) in Django 3.0 #298
+* Add suport for Django 4.0 (rc 1) and declare support for Python 3.10,
+  Salesforce API 53.0 Winter '22.
+* Add: Support timestamps with "auto_now_add=True" and "auto_now=True".
+* Fix: Fix tests for Salesforce API 52.0 Summer '21 that broke syntax of
+  filters on a primary key or foreign keys: can not be compared to empty string
+  and allowed only =, !=, IN, NOT IN.
+  A filter ``.filter(field__gt='')`` must be replaced e.g. by ``.exlude(field=None)``.
+* Fix: Works also with obsoleted USE_TZ=False #221
+* Fix: Support also alternative clones of Beatbox #172
 * Add: Implement queryset.bulk_update() method #236
 * Fix: SOQL command in queryset.raw() is supported case insensitive
 * Fix: ManyToMany relationships compiled also with GROUP BY, HAVING, ORDER BY. #264

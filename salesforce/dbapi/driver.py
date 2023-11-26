@@ -7,6 +7,7 @@ import re
 import sys
 import time
 import warnings
+from dataclasses import dataclass
 from itertools import islice
 from typing import (
     Any, Callable, cast, Dict, Generic, Iterable, Iterator, List, NamedTuple, Optional,
@@ -106,6 +107,7 @@ class RawConnection:
         if not getattr(settings, 'SF_LAZY_CONNECT', 'test' in sys.argv):  # TODO don't use argv
             self.make_session()
         self.debug_info = {}         # type:Dict[str, Any]
+        self.api_usage = ApiUsage(0, 5000)  # default before initialized by a request
 
     # -- public methods
 
@@ -135,11 +137,11 @@ class RawConnection:
         log.info("Rollback is not implemented in Salesforce.")
 
     @overload
-    def cursor(self) -> 'Cursor[List[Any]]': ...
+    def cursor(self) -> 'Cursor[Tuple[Any, ...]]': ...
     @overload  # noqa
     def cursor(self, row_type: Type[_TRow]) -> 'Cursor[_TRow]': ...
 
-    def cursor(self, row_type=list):  # type: ignore[no-untyped-def]
+    def cursor(self, row_type=tuple):  # type: ignore[no-untyped-def]
         return Cursor(self, row_type)
 
     # -- private attributes
@@ -291,6 +293,7 @@ class RawConnection:
             # 204 "No Content" (DELETE)
             # 300 ambiguous items for external ID.
             # 304 "Not Modified" (after conditional HEADER request for metadata),
+            self.api_usage.update(response.headers.get('Sforce-Limit-Info'))
             return response
         # status codes docs (400, 403, 404, 405, 415, 500)
         # https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/errorcodes.htm
@@ -303,7 +306,8 @@ class RawConnection:
         # Errors: 400, 403 permissions or REQUEST_LIMIT_EXCEEDED, 404, 405, 415, 500)
         # TODO extract a case ID for Salesforce support from code 500 messages
 
-        # TODO disabled 'debug_verbs' temporarily, after writing better default messages
+        # TODO extend or remove 'debug_verbs'. (It is disabled temporarily after writing
+        #      better default messages solved the need of quied mode.)
         # verb = self.debug_verbs
         method = response.request.method
         data = None
@@ -521,11 +525,11 @@ class Cursor(Generic[_TRow]):
         self.lastrowid = None  # TODO to be used for INSERT id, but insert is not implemented by cursor
         self.errorhandler = connection.errorhandler
         # private
-        assert row_type in (list, dict, None)
-        if row_type is None or issubclass(row_type, list):
-            self.row_type = list          # type: Union[Type[Dict[str, Any]], Type[List[Any]]]
+        assert row_type in (tuple, list, dict, None)
+        if row_type is None:
+            self.row_type = tuple         # type: Union[Type[Dict[str, Any]], Type[Tuple[Any, ...]], Type[List[Any]]]
         else:
-            self.row_type = row_type      # dict
+            self.row_type = row_type
         self._chunk = []                  # type: List[Dict[str, Any]]  # it is in the native JSON format
         self._chunk_offset = None         # type: Optional[int]
         self._next_records_url = None     # type: Optional[str]
@@ -790,6 +794,22 @@ def verbose_error_handler(connection: Connection, cursor: Optional[Cursor[Any]],
                           errorclass: Type[Exception], errorvalue: Exception,  # pylint:disable=unused-argument
                           ) -> None:
     pprint.pprint(errorvalue.__dict__)
+
+
+@dataclass
+class ApiUsage:
+    # see https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/headers_api_usage.htm
+    api_usage: int  # API requests used per last 24 hours
+    api_limit: int  # API requests limit pe 24 hours
+
+    def update(self, sforce_limit_info: Optional[str]) -> None:
+        # example: .update('api-usage=692/5000000')
+        if sforce_limit_info:
+            key, val = sforce_limit_info.split('=')
+            assert key == 'api-usage'
+            api_usage_s, api_limit_s = val.split('/')
+            self.api_usage = int(api_usage_s)
+            self.api_limit = int(api_limit_s)
 
 
 # --- private

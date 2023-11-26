@@ -8,7 +8,7 @@ ADMINS = (
     # ('Your Name', 'your_email@example.com'),
 )
 
-PERSON_ACCOUNT_ACTIVATED = False
+SF_EXAMPLE_PERSON_ACCOUNT_ACTIVATED = False
 
 DATABASES = {
     'default': {
@@ -23,7 +23,7 @@ DATABASES = {
         "CONSUMER_SECRET": os.environ.get('SF_CONSUMER_SECRET', ''),
         'USER': os.environ.get('SF_USER', ''),
         'PASSWORD': os.environ.get('SF_PASSWORD', ''),
-        'HOST': 'https://login.salesforce.com',
+        'HOST': os.environ.get('SF_HOST', 'https://login.salesforce.com'),
         'TEST': {
             'DEPENDENCIES': [],
             'MIGRATE': False,   # to run tests without migrations in Django 3.1+
@@ -51,7 +51,7 @@ USE_I18N = True
 
 # If you set this to False, Django will not format dates, numbers and
 # calendars according to the current locale
-USE_L10N = True
+# USE_L10N = True  # it is deprecated since Django 4.0 and expected True
 
 # Absolute filesystem path to the directory that will hold user-uploaded files.
 # Example: "/home/media/media.lawrence.com/media/"
@@ -193,6 +193,7 @@ LOGGING = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'  # not important for Salesforce, but for Django warnings
 
+DJSF_LICENSE_KEY = os.environ.get('DJSF_LICENSE_KEY', '')  # configure for enterprise features
 try:
     from salesforce.testrunner.local_settings import *  # noqa pylint:disable=unused-wildcard-import,wildcard-import
 except ImportError:

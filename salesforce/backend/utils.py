@@ -10,11 +10,18 @@ from typing import Any, Callable, Iterable, Iterator, List, Tuple, TypeVar, Unio
 from django.db import models, NotSupportedError
 from django.db.models.sql import subqueries, Query, RawQuery
 
-from salesforce.backend import DJANGO_30_PLUS
+from salesforce.backend import DJANGO_30_PLUS, DJANGO_42_PLUS
 from salesforce.dbapi.driver import (
     DatabaseError, InternalError, SalesforceWarning, merge_dict,
     register_conversion, arg_to_json)
 from salesforce.fields import NOT_UPDATEABLE, NOT_CREATEABLE
+
+if DJANGO_42_PLUS:
+    from django.core.exceptions import FullResultSet  # type: ignore[attr-defined] # pylint:disable=ungrouped-imports
+else:
+    class FullResultSet(Exception):  # type: ignore[no-redef]
+        pass
+
 
 V = TypeVar('V')
 if not DJANGO_30_PLUS:
@@ -75,10 +82,11 @@ def extract_values_inner(row, query):
     fields = query.model._meta.fields
     for _, field in enumerate(fields):
         sf_read_only = getattr(field, 'sf_read_only', 0)
+        is_date_auto = getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
         if field.get_internal_type() == 'AutoField':
             continue
         if isinstance(query, subqueries.UpdateQuery):
-            if (sf_read_only & NOT_UPDATEABLE) != 0:
+            if (sf_read_only & NOT_UPDATEABLE) != 0 or is_date_auto:
                 continue
             value_or_empty = [value for qfield, model, value in query.values if qfield.name == field.name]
             if value_or_empty:
@@ -281,7 +289,10 @@ class CursorWrapper:
                 sql, params = pks.get_compiler('salesforce').as_sql()
         if not sql:
             # a subquery is necessary in this case
-            where_sql, params = where.as_sql(query.get_compiler('salesforce'), self.db.connection)
+            try:
+                where_sql, params = where.as_sql(query.get_compiler('salesforce'), self.db.connection)
+            except FullResultSet:
+                where_sql, params = "", []
             sql = "SELECT Id FROM {}".format(query.model._meta.db_table)
             if where_sql:
                 sql += " WHERE {}".format(where_sql)

@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -9,11 +8,13 @@
 Salesforce introspection code.  (like django.db.backends.*.introspection)
 """
 
+import json
 import logging
 import re
 from collections import OrderedDict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from django.conf import settings
 from django.db.backends.base.introspection import (
     BaseDatabaseIntrospection, FieldInfo as BaseFieldInfo, TableInfo,
 )
@@ -44,6 +45,9 @@ PROBLEMATIC_OBJECTS = [
     'AsyncOperationEvent',  # new in API 46.0 Summer '19
     'AsyncOperationStatus',  # new in API 46.0 Summer '19
     'FlowExecutionErrorEvent',  # new in API 47.0 Winter '20 - missing 'Id'
+    'FlowOrchestrationEvent',  # new in API 53.0 Winter '22
+    'DataObjectDataChgEvent',  # new in API 55.0 Summer '22 (no 'Id' field)
+    'OrgSharingEvent', 'StatsInvalidationEvent',  # new in API 59.0 Summer '24 (no 'Id' field)
 ]
 
 # this global variable is for `salesforce.management.commands.inspectdb`
@@ -147,13 +151,17 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     def table_description_cache(self, table: str) -> Dict[str, Any]:
         if table not in self._table_description_cache:
+            if table == 'django_migrations':
+                raise ValueError("The internal table 'django_migrations' is not a normal Model.")
             log.debug('Request API URL: GET sobjects/%s/describe', table)
             response = self.connection.connection.handle_api_exceptions('GET', self.sobjects_prefix, table, 'describe/'
                                                                         )
             self._table_description_cache[table] = response.json(object_pairs_hook=OrderedDict)
             field_list = self._table_description_cache[table]['fields']
             # 'Id' field is sometimes not the first field in tooling metadata SObjects
-            id_field, = [x for x in field_list if x['name'] == 'Id']
+            id_fields = [x for x in field_list if x['name'] == 'Id']
+            assert len(id_fields) == 1, "Table {!r} must contain one field with name 'Id'".format(table)
+            id_field, = id_fields
             assert id_field['type'] == 'id', (
                 "Invalid type of the field 'Id' in table '{}'".format(table))
             del field_list[field_list.index(id_field)]
@@ -195,18 +203,32 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             # use symbolic names NOT_UPDATEABLE, NOT_CREATABLE, READ_ONLY instead of 1, 2, 3
             sf_read_only = (0 if field['updateable'] else 1) | (0 if field['createable'] else 2)
             params['sf_read_only'] = reverse_models_names[sf_read_only]
-        if field['defaultedOnCreate'] and field['createable']:
-            if field['defaultValue'] is None:
-                params['default'] = SymbolicModelsName('DEFAULTED_ON_CREATE')
+
+        if field['defaultValue'] is not None:
+            default: Optional[SymbolicModelsName] = field['defaultValue']
+        elif field['defaultValueFormula']:
+            if re.match(r'^(?:(?:-?[0-9]+(?:\.[0-9]+)?)|(?:"(?:[^"]|\")*"))$', field['defaultValueFormula']):
+                # (int, float, str)
+                default = json.loads(field['defaultValueFormula'])
+            elif field['defaultValueFormula'].lower() in ('true', 'false'):
+                # bool not important - probably not used
+                default = field['defaultValueFormula'].lower() == 'true'
             else:
-                params['default'] = SymbolicModelsName('DefaultedOnCreate', field['defaultValue'])
-        elif field['defaultValue'] is not None:
-            params['default'] = field['defaultValue']
+                default = None
+                params['ref_comment'] = 'Warning: not a simple defaultValueFormula'
+        else:
+            default = None
+        if default is not None:
+            params['default'] = default
+        elif field['defaultedOnCreate'] and field['createable']:
+            params['default'] = SymbolicModelsName('DEFAULTED_ON_CREATE')
+
         if field['inlineHelpText']:
             params['help_text'] = field['inlineHelpText']
         if field['picklistValues']:
             params['choices'] = [(x['value'], x['label']) for x in field['picklistValues'] if x['active']]
-            if len(repr(params['choices'])) < 4000:
+            max_inspectdb_picklist_picklist_length = getattr(settings, 'SF_MAX_INSPECTDB_PICKLIST_LENGTH', 4000)
+            if len(repr(params['choices'])) < max_inspectdb_picklist_picklist_length:
                 params['max_len'] = max(len(x['value']) for x in field['picklistValues'] if x['active'])
             else:
                 params['ref_comment'] = 'Too long choices skipped'

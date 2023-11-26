@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -17,7 +16,8 @@ from django.db.models.sql.where import AND
 from django.db.transaction import TransactionManagementError
 
 import salesforce.backend.models_lookups   # noqa pylint:disable=unused-import # required for activation of lookups
-from salesforce.backend import DJANGO_21_PLUS, DJANGO_30_PLUS, DJANGO_31_PLUS
+from salesforce.backend import DJANGO_21_PLUS, DJANGO_30_PLUS, DJANGO_31_PLUS, DJANGO_40_PLUS, DJANGO_42_PLUS
+from salesforce.backend.utils import FullResultSet
 from salesforce.dbapi import DatabaseError
 from salesforce.dbapi.subselect import AGGREGATION_WORDS
 # pylint:disable=no-else-return,too-many-branches,too-many-locals
@@ -30,6 +30,14 @@ AliasMapItems = List[Tuple[
 ]]
 
 
+class SfParams:  # like an immutable DataClass: clone when updating
+    def __init__(self):
+        self.query_all = False
+        self.all_or_none = None  # type: Optional[bool]
+        self.edge_updates = False
+        self.minimal_aliases = False
+
+
 class SQLCompiler(sql_compiler.SQLCompiler):
     """
     A subclass of the default SQL compiler for the SOQL dialect.
@@ -38,7 +46,12 @@ class SQLCompiler(sql_compiler.SQLCompiler):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.sf_params = SfParams()
         self.root_aliases = []  # type: List[str]
+
+    def set_sf_params(self, sf_params: SfParams) -> 'SQLCompiler':
+        self.sf_params = sf_params
+        return self
 
     def get_from_clause(self) -> Tuple[List[str], List[Any]]:
         """
@@ -86,7 +99,18 @@ class SQLCompiler(sql_compiler.SQLCompiler):
                 return sql_field
             pre, field, post = '', sql_field, ''
         tab_name, field_name = field.split('.')
-        ret = "%s%s.%s%s" % (pre, soql_trans[tab_name], field_name, post)
+        if self.sf_params.minimal_aliases:
+            assert len(self.root_aliases) == 1
+            if tab_name == self.root_aliases[0]:
+                trans_tab_name = ''
+            else:
+                trans_root = soql_trans[self.root_aliases[0]]
+                assert soql_trans[tab_name].startswith(trans_root + '.')
+                trans_tab_name = soql_trans[tab_name].replace(trans_root + '.', '', 1)
+        else:
+            trans_tab_name = soql_trans[tab_name]
+        dot = '.' if trans_tab_name else ''
+        ret = "%s%s%s%s%s" % (pre, trans_tab_name, dot, field_name, post)
         if debug_ >= 2:
             print('** sf_fix_field: {!r} -> {!r}'.format(sql_field, ret))
         return ret
@@ -171,8 +195,14 @@ class SQLCompiler(sql_compiler.SQLCompiler):
             # docstring of get_from_clause() for details.
             from_, f_params = self.get_from_clause()
 
-            where, w_params = self.compile(self.where) if self.where is not None else ("", [])
-            having, h_params = self.compile(self.having) if self.having is not None else ("", [])
+            try:
+                where, w_params = self.compile(self.where) if self.where is not None else ("", [])
+            except FullResultSet:
+                where, w_params = "", []
+            try:
+                having, h_params = self.compile(self.having) if self.having is not None else ("", [])
+            except FullResultSet:
+                having, h_params = "", []
             params = []
             result = ['SELECT']
 
@@ -227,7 +257,13 @@ class SQLCompiler(sql_compiler.SQLCompiler):
                 result.append('HAVING %s' % having)
                 params.extend(h_params)
 
-            if DJANGO_21_PLUS:
+            if DJANGO_40_PLUS:
+                if self.query.explain_info:                # type: ignore[attr-defined]
+                    result.insert(0, self.connection.ops.explain_query_prefix(
+                        self.query.explain_info.format,    # type: ignore[attr-defined]
+                        **self.query.explain_info.options  # type: ignore[attr-defined]
+                    ))
+            elif DJANGO_21_PLUS:
                 if self.query.explain_query:
                     result.insert(0, self.connection.ops.explain_query_prefix(
                         self.query.explain_format,
@@ -286,7 +322,7 @@ class SQLCompiler(sql_compiler.SQLCompiler):
         if self.soql_trans is not None:
             return self.soql_trans
         if not _alias_map_items and not self.query.alias_map:
-            # empty alias_map is possible due to field expr in Django 1.8
+            # empty alias_map is possible due to field expr
             return {}
         # Unified interface:
         #   alias_map_items = [(lhs, table, join_cols_, rhs),...]
@@ -383,6 +419,8 @@ class SalesforceWhereNode(sql_where.WhereNode):
                 sql, params = compiler.compile(child)
             except EmptyResultSet:
                 empty_needed -= 1
+            except FullResultSet:
+                full_needed -= 1
             else:
                 if sql:
 
@@ -402,6 +440,8 @@ class SalesforceWhereNode(sql_where.WhereNode):
             # counts.
             if empty_needed == 0:
                 if self.negated:
+                    if DJANGO_42_PLUS:
+                        raise FullResultSet
                     return '', []
                 else:
                     raise EmptyResultSet
@@ -409,9 +449,13 @@ class SalesforceWhereNode(sql_where.WhereNode):
                 if self.negated:
                     raise EmptyResultSet
                 else:
+                    if DJANGO_42_PLUS:
+                        raise FullResultSet
                     return '', []
         conn = ' %s ' % self.connector
         sql_string = conn.join(result)
+        if DJANGO_42_PLUS and not sql_string:
+            raise FullResultSet
         if sql_string:
             if self.negated:
                 # *** patch 3 (remove) begin

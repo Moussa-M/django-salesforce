@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -12,7 +11,10 @@ import django
 from django.conf import settings
 
 from salesforce import models
-from salesforce.models import SalesforceModel as SalesforceModelParent
+if not getattr(settings, 'SF_EXAMPLE_EXTENDED_MODELS', False):
+    from salesforce.models import SalesforceModel as SalesforceModelParent
+else:
+    from salesforce.models_extend import SalesforceModel as SalesforceModelParent
 
 
 SALUTATIONS = [
@@ -113,7 +115,7 @@ class PersonAccount(AbstractAccount):
         abstract = True
 
 
-if getattr(settings, 'PERSON_ACCOUNT_ACTIVATED', False):
+if getattr(settings, 'SF_EXAMPLE_PERSON_ACCOUNT_ACTIVATED', False):
     class Account(PersonAccount):  # pylint:disable=model-no-explicit-unicode
         pass
 else:
@@ -135,10 +137,11 @@ class Contact(SalesforceModel):
     # The `default=` with lambda function is easy readable, but can be
     # problematic with migrations in the future because it is not serializable.
     # It can be replaced by normal function.
-    owner = models.ForeignKey(User, on_delete=models.DO_NOTHING,
-                              default=models.DefaultedOnCreate(User),
-                              related_name='contact_owner_set')
-    if getattr(settings, 'SF_CUSTOM_INSTALLED', False):
+    if not getattr(settings, 'SF_EXAMPLE_SIMPLE_DEFAULTS', False):
+        owner = models.ForeignKey(User, on_delete=models.DO_NOTHING,
+                                  default=models.DefaultedOnCreate(User),
+                                  related_name='contact_owner_set')
+    if getattr(settings, 'SF_EXAMPLE_CUSTOM_INSTALLED', False):
         vs = models.DecimalField(custom=True, unique=True, max_digits=10, decimal_places=0, blank=True, null=True)
 
     def __str__(self):
@@ -191,9 +194,10 @@ class Lead(SalesforceModel):
                                             sf_read_only=models.NOT_CREATEABLE)
     # Deleted object can be found only in querysets with "query_all" SF method.
     IsDeleted = models.BooleanField(default=False, sf_read_only=models.READ_ONLY)
-    owner = models.ForeignKey(User, on_delete=models.DO_NOTHING,
-                              default=models.DefaultedOnCreate(User),
-                              related_name='lead_owner_set')
+    if not getattr(settings, 'SF_EXAMPLE_SIMPLE_DEFAULTS', False):
+        owner = models.ForeignKey(User, on_delete=models.DO_NOTHING,
+                                  default=models.DefaultedOnCreate(User),
+                                  related_name='lead_owner_set')
     last_modified_by = models.ForeignKey(User, on_delete=models.DO_NOTHING, null=True,
                                          sf_read_only=models.READ_ONLY,
                                          related_name='lead_lastmodifiedby_set')
@@ -248,8 +252,7 @@ class ChargentOrder(SalesforceModel):
         managed = False  # can not be managed if it eventually could not exist
 
     Name = models.CharField(max_length=255, db_column='Name')
-    # example of automatically recognized name  db_column='ChargentOrders__Balance_Due__c'
-    Balance_Due = models.CharField(max_length=255)
+    Balance_Due = models.CharField(max_length=255, db_column='ChargentOrders__Balance_Due__c')
 
 
 class CronTrigger(SalesforceModel):
@@ -276,7 +279,7 @@ class SalesforceParentModel(SalesforceModel):
     # This is not a custom field because is not defined in a custom model.
     # The API name is therefore 'Name'.
     name = models.CharField(max_length=80)
-    last_modified_date = models.DateTimeField(sf_read_only=models.READ_ONLY)
+    last_modified_date = models.DateTimeField(sf_read_only=models.READ_ONLY, auto_now=True)
     # This model is not custom because it has not an explicit attribute
     # `custom = True` in Meta and also has not a `db_table` that ends with
     # '__c'.
@@ -285,7 +288,7 @@ class SalesforceParentModel(SalesforceModel):
         abstract = True
 
 
-class Note(models.Model):
+class Note(SalesforceModel):
     title = models.CharField(max_length=80)
     body = models.TextField(null=True)
     parent_id = models.CharField(max_length=18)
@@ -299,7 +302,7 @@ class Opportunity(SalesforceModel):
     )
     close_date = models.DateField()
     stage = models.CharField(max_length=255, db_column='StageName')  # e.g. "Prospecting"
-    created_date = models.DateTimeField(sf_read_only=models.READ_ONLY)
+    created_date = models.DateTimeField(sf_read_only=models.READ_ONLY, auto_now_add=True)
     amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
     probability = models.DecimalField(
         max_digits=3, decimal_places=0, verbose_name='Probability (%)',
@@ -333,7 +336,7 @@ except ImportError:
     models_template = None
 
 
-class Organization(models.Model):
+class Organization(SalesforceModel):
     name = models.CharField(max_length=80, sf_read_only=models.NOT_CREATEABLE)
     division = models.CharField(max_length=80, sf_read_only=models.NOT_CREATEABLE, blank=True)
     organization_type = models.CharField(max_length=40, verbose_name='Edition',
@@ -378,26 +381,26 @@ class Test(SalesforceParentModel):
     """
     # This is a custom field because it is defined in the custom model.
     # The API name is therefore 'TestField__c'
-    test_text = models.CharField(max_length=40)
-    test_bool = models.BooleanField(default=False)
-    contact = models.ForeignKey(Contact, null=True, on_delete=models.DO_NOTHING)
+    test_text = models.CharField(max_length=40, db_column='TestText__c')
+    test_bool = models.BooleanField(default=False, db_column='TestBool__c')
+    contact = models.ForeignKey(Contact, null=True, on_delete=models.DO_NOTHING, custom=True)
 
     class Meta:
         custom = True
         db_table = 'django_Test__c'
 
 
-class TestDetail(models.Model):
+class TestDetail(SalesforceModel):
     parent = models.ForeignKey(Test, models.DO_NOTHING, db_column='Parent__c', sf_read_only=models.NOT_UPDATEABLE)
     contact = models.ForeignKey('Contact', models.DO_NOTHING, db_column='Contact__c', blank=True, null=True)
 
-    class Meta(models.Model.Meta):
+    class Meta(SalesforceModel.Meta):
         db_table = 'django_Test_detail__c'
 
 
 # example of relationship from builtin object to custom object
 
-class Attachment(models.Model):
+class Attachment(SalesforceModel):
     # A standard SFDC object that can have a relationship to any custom object
     name = models.CharField(max_length=80)
     parent = models.ForeignKey(Test, sf_read_only=models.NOT_UPDATEABLE, on_delete=models.DO_NOTHING)
@@ -405,7 +408,7 @@ class Attachment(models.Model):
     body = models.TextField()
 
 
-class Task(models.Model):
+class Task(SalesforceModel):
     # Reference to tables [Contact, Lead]
     who = models.ForeignKey(Lead, on_delete=models.DO_NOTHING, blank=True, null=True)
     # Refer
@@ -414,7 +417,7 @@ class Task(models.Model):
 
 # OneToOneField
 
-class ApexEmailNotification(models.Model):
+class ApexEmailNotification(SalesforceModel):
     """Stores who should be notified when unhandled Apex exceptions occur.
 
     The target can be more Salesforce users or an external email addresses.
@@ -427,13 +430,13 @@ class ApexEmailNotification(models.Model):
     email = models.CharField(unique=True, max_length=255, verbose_name='email', blank=True)
 
 
-class Campaign(models.Model):
+class Campaign(SalesforceModel):
     name = models.CharField(max_length=80)
     number_sent = models.DecimalField(max_digits=18, decimal_places=0, verbose_name='Num Sent', blank=True, null=True)
     parent = models.ForeignKey('Campaign', on_delete=models.DO_NOTHING, blank=True, null=True)
 
 
-class CampaignMember(models.Model):
+class CampaignMember(SalesforceModel):
     campaign = models.ForeignKey(Campaign, on_delete=models.DO_NOTHING)
     contact = models.ForeignKey(Contact, on_delete=models.DO_NOTHING)
     status = models.CharField(max_length=40)

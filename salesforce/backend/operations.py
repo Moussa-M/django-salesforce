@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 """
@@ -11,7 +10,6 @@ from typing import Optional
 import itertools
 import warnings
 
-import django.db.backends.utils
 from django.db.backends.base.operations import BaseDatabaseOperations
 from salesforce.backend import DJANGO_30_PLUS
 from salesforce.dbapi.exceptions import SalesforceWarning
@@ -46,10 +44,10 @@ class DatabaseOperations(BaseDatabaseOperations):  # pylint:disable=too-many-pub
 
         def fetch_returned_insert_columns(self, cursor, returning_params=None):
             # the parameter "returning_params" is for Django 3.1
-            return [cursor.lastrowid]
+            return (cursor.lastrowid,)
 
         def fetch_returned_insert_rows(self, cursor):
-            return [[x] for x in cursor.lastrowid]
+            return [(x,) for x in cursor.lastrowid]
 
         def return_insert_columns(self, fields):
             return '', ()  # dummy result
@@ -91,13 +89,15 @@ class DatabaseOperations(BaseDatabaseOperations):  # pylint:disable=too-many-pub
     def adapt_decimalfield_value(self, value, max_digits=None, decimal_places=None):
         if hasattr(value, 'default'):  # DefaultedOnCreate
             return value
-        return django.db.backends.utils.format_number(value, max_digits, decimal_places)
+        if value is None:
+            return None
+        return float(value)
 
     def bulk_batch_size(self, fields, objs):
         return BULK_BATCH_SIZE
 
-    # This SQL is not important because we control the db from the compiler
-    # but something must exist
+    # This SQL is not important because we currently control the insert from a Salesforce compiler,
+    # but some method must exist.
     def bulk_insert_sql(self, fields, placeholder_rows):
         return "VALUES " + ", ".join(itertools.chain(*placeholder_rows))
 

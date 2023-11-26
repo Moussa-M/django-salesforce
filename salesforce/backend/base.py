@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -14,6 +13,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from django.conf import settings
 from django.db.backends.base.base import BaseDatabaseWrapper
 
+from salesforce.backend import enterprise
 from salesforce.backend.client import DatabaseClient
 from salesforce.backend.creation import DatabaseCreation
 from salesforce.backend.features import DatabaseFeatures
@@ -43,8 +43,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     vendor = 'salesforce'
     display_name = 'Salesforce'
 
-    # Operators [contains, startswithm, endswith] are incorrectly
-    # case insensitive like sqlite3.
+    # All string operators are case insensitive in SOQL. (that can not be fixed)
+    # The relevant part here is the operator, e.g. a simple "LIKE".
+    # An optional wilcard ('%') is managed by a universal Django code for an operand.
     operators = {
         'exact': '= %s',
         'iexact': 'LIKE %s',
@@ -95,6 +96,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     @async_unsafe
     def get_new_connection(self, conn_params: Dict[str, Any]) -> Database.RawConnection:
+        enterprise.check_license_in_latest_django()
         # simulated only a connection interface without connecting really
         return Database.connect(settings_dict=conn_params, alias=self.alias)
 

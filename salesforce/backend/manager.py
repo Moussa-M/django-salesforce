@@ -1,7 +1,6 @@
 # django-salesforce
 #
-# by Phil Christensen
-# (c) 2012-2013 Freelancers Union (http://www.freelancersunion.org)
+# by Hyneck Cernoch and Phil Christensen
 # See LICENSE.md for details
 #
 
@@ -13,7 +12,6 @@ Use a custom QuerySet to generate SOQL queries and results.
 This module requires a customized package django-stubs (django-salesforce-stubs)
 """
 
-import sys
 from typing import Generic, Optional, TypeVar
 from django.db.models import manager, Model
 from django.db.models.query import QuerySet  # pylint:disable=unused-import
@@ -25,10 +23,6 @@ _T = TypeVar("_T", bound=Model, covariant=True)
 
 
 class SalesforceManager(manager.Manager, Generic[_T]):
-
-    if sys.version_info[:2] < (3, 6):
-        # this is a fix for Generic type issue https://github.com/python/typing/issues/498
-        __copy__ = None
 
     def get_queryset(self, _alias: Optional[str] = None) -> 'QuerySet[_T]':
         """
@@ -60,7 +54,7 @@ class SalesforceManager(manager.Manager, Generic[_T]):
            query_all: Optional[bool] = None,
            all_or_none: Optional[bool] = None,
            edge_updates: Optional[bool] = None,
-           ) -> 'query.SalesforceQuerySet[_T]':
+           minimal_aliases: Optional[bool] = None) -> 'query.SalesforceQuerySet[_T]':
         # not dry, but explicit due to preferring type check of user code
         qs = self.get_queryset()
         assert isinstance(qs, query.SalesforceQuerySet)
@@ -68,4 +62,5 @@ class SalesforceManager(manager.Manager, Generic[_T]):
             query_all=query_all,
             all_or_none=all_or_none,
             edge_updates=edge_updates,
+            minimal_aliases=minimal_aliases,
         )
